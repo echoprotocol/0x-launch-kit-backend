@@ -2,21 +2,18 @@ import { BigNumber, SignedOrder } from '0x.js';
 import {
     AcceptedOrderInfo,
     OrderEvent,
-    OrderEventKind,
+    OrderEventEndState,
     OrderInfo,
+    RejectedCode,
     RejectedOrderInfo,
     ValidationResults,
     WSClient,
-} from 'dekz-mesh-rpc-client';
+} from '@0x/mesh-rpc-client';
 import * as _ from 'lodash';
 
 import { MESH_ENDPOINT } from '../config';
-import {
-    AdaptedOrderAndValidationResult,
-    AdaptedValidationResults,
-    APIOrderWithMetaData,
-    onOrdersUpdateCallback,
-} from '../types';
+import { ValidationErrorCodes } from '../errors';
+import { AcceptedRejectedResults, APIOrderWithMetaData, onOrdersUpdateCallback } from '../types';
 import { utils } from '../utils';
 
 // tslint:disable-next-line:no-var-requires
@@ -32,39 +29,7 @@ export class MeshAdapter {
         updated: new Set<onOrdersUpdateCallback>(),
         removed: new Set<onOrdersUpdateCallback>(),
     };
-    private static _calculateAddOrRemove(
-        orderEvents: OrderEvent[],
-    ): { added: APIOrderWithMetaData[]; removed: APIOrderWithMetaData[]; updated: APIOrderWithMetaData[] } {
-        const added = [];
-        const removed = [];
-        const updated = [];
-        for (const event of orderEvents) {
-            const apiOrder = MeshAdapter._orderInfoToAPIOrder(event);
-            switch (event.kind) {
-                case OrderEventKind.Added: {
-                    added.push(apiOrder);
-                    break;
-                }
-                case OrderEventKind.Cancelled:
-                case OrderEventKind.Expired:
-                case OrderEventKind.FullyFilled:
-                case OrderEventKind.Unfunded: {
-                    removed.push(apiOrder);
-                    break;
-                }
-                case OrderEventKind.FillabilityIncreased:
-                case OrderEventKind.Filled: {
-                    updated.push(apiOrder);
-                    break;
-                }
-                default:
-                    d('Unknown Event', event.kind, event);
-                    break;
-            }
-        }
-        return { added, removed, updated };
-    }
-    private static _orderInfoToAPIOrder(
+    public static orderInfoToAPIOrder(
         orderEvent: OrderEvent | AcceptedOrderInfo | RejectedOrderInfo | OrderInfo,
     ): APIOrderWithMetaData {
         const remainingFillableTakerAssetAmount = (orderEvent as OrderEvent).fillableTakerAssetAmount
@@ -77,6 +42,60 @@ export class MeshAdapter {
                 remainingFillableTakerAssetAmount,
             },
         };
+    }
+    public static meshRejectedCodeToSRACode(code: RejectedCode): ValidationErrorCodes {
+        switch (code) {
+            case RejectedCode.OrderCancelled:
+            case RejectedCode.OrderExpired:
+            case RejectedCode.OrderUnfunded:
+            case RejectedCode.OrderHasInvalidMakerAssetAmount:
+            case RejectedCode.OrderHasInvalidMakerAssetData:
+            case RejectedCode.OrderHasInvalidTakerAssetAmount:
+            case RejectedCode.OrderHasInvalidTakerAssetData:
+            case RejectedCode.OrderFullyFilled: {
+                return ValidationErrorCodes.InvalidOrder;
+            }
+            case RejectedCode.OrderHasInvalidSignature: {
+                return ValidationErrorCodes.InvalidSignatureOrHash;
+            }
+            case RejectedCode.OrderForIncorrectNetwork: {
+                return ValidationErrorCodes.InvalidAddress;
+            }
+            default:
+                return ValidationErrorCodes.InternalError;
+        }
+    }
+    private static _calculateAddOrRemove(
+        orderEvents: OrderEvent[],
+    ): { added: APIOrderWithMetaData[]; removed: APIOrderWithMetaData[]; updated: APIOrderWithMetaData[] } {
+        const added = [];
+        const removed = [];
+        const updated = [];
+        for (const event of orderEvents) {
+            const apiOrder = MeshAdapter.orderInfoToAPIOrder(event);
+            switch (event.endState) {
+                case OrderEventEndState.Added: {
+                    added.push(apiOrder);
+                    break;
+                }
+                case OrderEventEndState.Cancelled:
+                case OrderEventEndState.Expired:
+                case OrderEventEndState.FullyFilled:
+                case OrderEventEndState.Unfunded: {
+                    removed.push(apiOrder);
+                    break;
+                }
+                case OrderEventEndState.FillabilityIncreased:
+                case OrderEventEndState.Filled: {
+                    updated.push(apiOrder);
+                    break;
+                }
+                default:
+                    d('Unknown Event', event.endState, event);
+                    break;
+            }
+        }
+        return { added, removed, updated };
     }
     constructor() {
         this._wsClient = new WSClient(MESH_ENDPOINT);
@@ -99,21 +118,13 @@ export class MeshAdapter {
             }
         });
     }
-    public async addOrdersAsync(orders: SignedOrder[]): Promise<AdaptedValidationResults> {
+    public async addOrdersAsync(orders: SignedOrder[]): Promise<AcceptedRejectedResults> {
         if (orders.length === 0) {
-            const validationResults: AdaptedValidationResults = { accepted: [], rejected: [] };
+            const validationResults = { accepted: [], rejected: [] };
             return validationResults;
         }
         const { accepted, rejected } = await this._submitOrdersToMeshAsync(orders);
-        const adaptedAcceptedResults: AdaptedOrderAndValidationResult[] = (accepted || []).map(r => ({
-            ...MeshAdapter._orderInfoToAPIOrder(r),
-            message: undefined,
-        }));
-        const adaptedRejectedResults: AdaptedOrderAndValidationResult[] = (rejected || []).map(r => ({
-            ...MeshAdapter._orderInfoToAPIOrder(r),
-            message: `${r.kind} ${r.status.code}: ${r.status.message}`,
-        }));
-        return { accepted: adaptedAcceptedResults, rejected: adaptedRejectedResults };
+        return { accepted, rejected };
     }
     // tslint:disable-next-line:async-suffix
     public async onOrdersAdded(cb: onOrdersUpdateCallback): Promise<void> {
@@ -130,9 +141,8 @@ export class MeshAdapter {
     public onReconnected(cb: () => void): void {
         this._wsClient.onReconnected(() => cb());
     }
-    public async getOrdersAsync(): Promise<APIOrderWithMetaData[]> {
-        const acceptedOrders = await utils.attemptAsync(() => this._wsClient.getOrdersAsync());
-        const orders = acceptedOrders.map(o => MeshAdapter._orderInfoToAPIOrder(o));
+    public async getOrdersAsync(): Promise<OrderInfo[]> {
+        const orders = await utils.attemptAsync(() => this._wsClient.getOrdersAsync());
         return orders;
     }
     private async _submitOrdersToMeshAsync(signedOrders: SignedOrder[]): Promise<ValidationResults> {

@@ -25,7 +25,7 @@ export const utils = {
         }
     },
     async delayAsync(ms: number): Promise<void> {
-        return new Promise(resolve => setTimeout(resolve, ms));
+        return new Promise(resolve => setTimeout(resolve, ms)) as Promise<void>;
     },
     async attemptAsync<T>(
         fn: () => Promise<T>,

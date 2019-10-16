@@ -9,6 +9,11 @@ export abstract class BadRequestError extends RelayerBaseError {
     public abstract generalErrorCode: GeneralErrorCodes;
 }
 
+export class OrderSubmissionDisabledError extends RelayerBaseError {
+    public statusCode = 400;
+    public generalErrorCode: GeneralErrorCodes = GeneralErrorCodes.OrderSubmissionDisabled;
+}
+
 export interface ValidationErrorItem {
     field: string;
     code: ValidationErrorCodes;
@@ -82,4 +87,5 @@ export enum ValidationErrorCodes {
     InvalidSignatureOrHash = 1005,
     UnsupportedOption = 1006,
     InvalidOrder = 1007,
+    InternalError = 1008,
 }

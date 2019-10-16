@@ -1,4 +1,3 @@
-import '@babel/polyfill';
 import * as bodyParser from 'body-parser';
 import * as cors from 'cors';
 import * as express from 'express';
@@ -10,7 +9,8 @@ import { initDBConnectionAsync } from './db_connection';
 import { Handlers } from './handlers';
 import { errorHandler } from './middleware/error_handling';
 import { urlParamsParsing } from './middleware/url_params_parsing';
-import { OrderBook } from './orderbook';
+import { ReadOnlyOrderBook } from './orderbooks/read_only_orderbook';
+import { OrderBook } from './orderbooks/write_orderbook';
 import { utils } from './utils';
 import { WebsocketSRA } from './websocket_sra';
 
@@ -26,9 +26,14 @@ import { WebsocketSRA } from './websocket_sra';
             )}`,
         );
     });
-    const orderBook = new OrderBook(new WebsocketSRA(server));
+    let orderBook;
+    if (!config.READ_ONLY) {
+        orderBook = new OrderBook(new WebsocketSRA(server));
+        await orderBook.syncOrderbookAsync();
+    } else {
+        orderBook = new ReadOnlyOrderBook();
+    }
     const handlers = new Handlers(orderBook);
-    await handlers.initOrderBookAsync();
 
     app.use(cors());
     app.use(bodyParser.json());
@@ -38,39 +43,39 @@ import { WebsocketSRA } from './websocket_sra';
      * GET AssetPairs endpoint retrieves a list of available asset pairs and the information required to trade them.
      * http://sra-spec.s3-website-us-east-1.amazonaws.com/#operation/getAssetPairs
      */
-    app.get('/v2/asset_pairs', asyncHandler(Handlers.assetPairsAsync.bind(Handlers)));
+    app.get('/v3/asset_pairs', asyncHandler(Handlers.assetPairsAsync.bind(Handlers)));
     /**
      * GET Orders endpoint retrieves a list of orders given query parameters.
      * http://sra-spec.s3-website-us-east-1.amazonaws.com/#operation/getOrders
      */
-    app.get('/v2/orders', asyncHandler(handlers.ordersAsync.bind(handlers)));
+    app.get('/v3/orders', asyncHandler(handlers.ordersAsync.bind(handlers)));
     /**
      * GET Orderbook endpoint retrieves the orderbook for a given asset pair.
      * http://sra-spec.s3-website-us-east-1.amazonaws.com/#operation/getOrderbook
      */
-    app.get('/v2/orderbook', asyncHandler(handlers.orderbookAsync.bind(handlers)));
+    app.get('/v3/orderbook', asyncHandler(handlers.orderbookAsync.bind(handlers)));
     /**
      * GET FeeRecepients endpoint retrieves a collection of all fee recipient addresses for a relayer.
-     * http://sra-spec.s3-website-us-east-1.amazonaws.com/v2/fee_recipients
+     * http://sra-spec.s3-website-us-east-1.amazonaws.com/v3/fee_recipients
      */
-    app.get('/v2/fee_recipients', Handlers.feeRecipients.bind(Handlers));
+    app.get('/v3/fee_recipients', Handlers.feeRecipients.bind(Handlers));
     if (!config.DISABLE_POST) {
         /**
          * POST Order config endpoint retrives the values for order fields that the relayer requires.
          * http://sra-spec.s3-website-us-east-1.amazonaws.com/#operation/getOrderConfig
          */
-        app.post('/v2/order_config', Handlers.orderConfig.bind(Handlers));
+        app.post('/v3/order_config', Handlers.orderConfig.bind(Handlers));
         /**
          * POST Order endpoint submits an order to the Relayer.
          * http://sra-spec.s3-website-us-east-1.amazonaws.com/#operation/postOrder
          */
-        app.post('/v2/order', asyncHandler(handlers.postOrderAsync.bind(handlers)));
+        app.post('/v3/order', asyncHandler(handlers.postOrderAsync.bind(handlers)));
     }
     /**
      * GET Order endpoint retrieves the order by order hash.
      * http://sra-spec.s3-website-us-east-1.amazonaws.com/#operation/getOrder
      */
-    app.get('/v2/order/:orderHash', asyncHandler(Handlers.getOrderByHashAsync.bind(Handlers)));
+    app.get('/v3/order/:orderHash', asyncHandler(Handlers.getOrderByHashAsync.bind(Handlers)));
 
     app.use(errorHandler);
 })().catch(utils.log);

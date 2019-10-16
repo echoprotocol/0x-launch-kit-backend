@@ -1,20 +1,15 @@
 import { assetDataUtils, BigNumber, SignedOrder } from '0x.js';
 import { schemas } from '@0x/json-schemas';
-import { Web3Wrapper } from '@0x/web3-wrapper';
 import * as express from 'express';
 import * as HttpStatus from 'http-status-codes';
 import * as _ from 'lodash';
 
-import {
-    FEE_RECIPIENT,
-    MAKER_FEE_ZRX_UNIT_AMOUNT,
-    MAX_PER_PAGE,
-    TAKER_FEE_ZRX_UNIT_AMOUNT,
-    WHITELISTED_TOKENS,
-} from './config';
-import { DEFAULT_PAGE, DEFAULT_PER_PAGE, NULL_ADDRESS, ZRX_DECIMALS } from './constants';
+import { FEE_RECIPIENT, MAX_PER_PAGE, WHITELISTED_TOKENS } from './config';
+import { DEFAULT_PAGE, DEFAULT_PER_PAGE } from './constants';
 import { NotFoundError, ValidationError, ValidationErrorCodes } from './errors';
-import { OrderBook } from './orderbook';
+import { fixedFeeStrategy } from './fee_strategy';
+import { ReadOnlyOrderBook } from './orderbooks/read_only_orderbook';
+import { OrderBook } from './orderbooks/write_orderbook';
 import { paginate } from './paginator';
 import { utils } from './utils';
 
@@ -34,7 +29,7 @@ const parsePaginationConfig = (req: express.Request): { page: number; perPage: n
 };
 
 export class Handlers {
-    private readonly _orderBook: OrderBook;
+    private readonly _orderBook: OrderBook | ReadOnlyOrderBook;
     public static feeRecipients(req: express.Request, res: express.Response): void {
         const { page, perPage } = parsePaginationConfig(req);
         const normalizedFeeRecipient = FEE_RECIPIENT.toLowerCase();
@@ -44,13 +39,7 @@ export class Handlers {
     }
     public static orderConfig(req: express.Request, res: express.Response): void {
         utils.validateSchema(req.body, schemas.orderConfigRequestSchema);
-        const normalizedFeeRecipient = FEE_RECIPIENT.toLowerCase();
-        const orderConfigResponse = {
-            senderAddress: NULL_ADDRESS,
-            feeRecipientAddress: normalizedFeeRecipient,
-            makerFee: Web3Wrapper.toBaseUnitAmount(MAKER_FEE_ZRX_UNIT_AMOUNT, ZRX_DECIMALS).toString(),
-            takerFee: Web3Wrapper.toBaseUnitAmount(TAKER_FEE_ZRX_UNIT_AMOUNT, ZRX_DECIMALS).toString(),
-        };
+        const orderConfigResponse = fixedFeeStrategy.getOrderConfig(req.body);
         res.status(HttpStatus.OK).send(orderConfigResponse);
     }
     public static async assetPairsAsync(req: express.Request, res: express.Response): Promise<void> {
@@ -72,11 +61,8 @@ export class Handlers {
             res.status(HttpStatus.OK).send(orderIfExists);
         }
     }
-    constructor(orderBook: OrderBook) {
+    constructor(orderBook: OrderBook | ReadOnlyOrderBook) {
         this._orderBook = orderBook;
-    }
-    public async initOrderBookAsync(): Promise<void> {
-        await this._orderBook.addExistingOrdersToOrderWatcherAsync();
     }
     public async ordersAsync(req: express.Request, res: express.Response): Promise<void> {
         utils.validateSchema(req.query, schemas.ordersRequestOptsSchema);
@@ -100,17 +86,7 @@ export class Handlers {
             validateAssetDataIsWhitelistedOrThrow(allowedTokens, signedOrder.makerAssetData, 'makerAssetData');
             validateAssetDataIsWhitelistedOrThrow(allowedTokens, signedOrder.takerAssetData, 'takerAssetData');
         }
-        try {
-            await this._orderBook.addOrderAsync(signedOrder);
-        } catch (err) {
-            throw new ValidationError([
-                {
-                    field: 'signedOrder',
-                    code: ValidationErrorCodes.InvalidOrder,
-                    reason: err.message,
-                },
-            ]);
-        }
+        await this._orderBook.addOrderAsync(signedOrder);
         res.status(HttpStatus.OK).send();
     }
 }
