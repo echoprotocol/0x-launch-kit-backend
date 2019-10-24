@@ -3,7 +3,7 @@ import {
     BigNumber,
     ContractWrappers,
     orderHashUtils,
-    RPCSubprovider,
+    ProviderSubprovider,
     SignedOrder,
     Web3ProviderEngine,
 } from '0x.js';
@@ -12,6 +12,8 @@ import { OrderState, OrderWatcher } from '@0x/order-watcher';
 import { Asset, AssetPairsItem, AssetProxyId, OrdersRequestOpts } from '@0x/types';
 import { errorUtils, intervalUtils } from '@0x/utils';
 import * as _ from 'lodash';
+//@ts-ignore
+import { EchoProvider } from 'echo-web3';
 
 import {
     DEFAULT_ERC20_TOKEN_PRECISION,
@@ -28,8 +30,8 @@ import { paginate } from './paginator';
 import { utils } from './utils';
 
 export class OrderBook {
-    private readonly _orderWatcher: OrderWatcher;
-    private readonly _contractWrappers: ContractWrappers;
+    private _orderWatcher: OrderWatcher | null;
+    private _contractWrappers: ContractWrappers | null;
     // Mapping from an order hash to the timestamp when it was shadowed
     private readonly _shadowedOrders: Map<string, number>;
     public static async getOrderByHashIfExistsAsync(orderHash: string): Promise<APIOrder | undefined> {
@@ -111,11 +113,19 @@ export class OrderBook {
         return paginatedFilteredAssetPairs;
     }
     constructor() {
+        this._shadowedOrders = new Map();
+        this._orderWatcher = null;
+        this._contractWrappers = null;
+    }
+
+    public async init(): Promise<void> {
+        const echoProvider = new EchoProvider(RPC_URL);
+        await echoProvider.init()
+
         const provider = new Web3ProviderEngine();
-        provider.addProvider(new RPCSubprovider(RPC_URL));
+        provider.addProvider(new ProviderSubprovider(echoProvider));
         provider.start();
 
-        this._shadowedOrders = new Map();
         this._contractWrappers = new ContractWrappers(provider, {
             networkId: NETWORK_ID,
         });
@@ -127,6 +137,7 @@ export class OrderBook {
             utils.log,
         );
     }
+
     public onOrderStateChangeCallback(err: Error | null, orderState?: OrderState): void {
         if (err !== null) {
             utils.log(err);
@@ -146,6 +157,7 @@ export class OrderBook {
             if (shadowedAt + ORDER_SHADOWING_MARGIN_MS < now) {
                 permanentlyExpiredOrders.push(orderHash);
                 this._shadowedOrders.delete(orderHash); // we need to remove this order so we don't keep shadowing it
+                //@ts-ignore
                 this._orderWatcher.removeOrder(orderHash); // also remove from order watcher to avoid more callbacks
             }
         }
@@ -158,9 +170,11 @@ export class OrderBook {
         const connection = getDBConnection();
         // Validate transfers to a non 0 default address. Some tokens cannot be transferred to
         // the null address (default)
+        //@ts-ignore
         await this._contractWrappers.exchange.validateOrderFillableOrThrowAsync(signedOrder, {
             simulationTakerAddress: DEFAULT_TAKER_SIMULATION_ADDRESS,
         });
+        //@ts-ignore
         await this._orderWatcher.addOrderAsync(signedOrder);
         const signedOrderModel = serializeOrder(signedOrder);
         await connection.manager.save(signedOrderModel);
@@ -244,14 +258,14 @@ export class OrderBook {
                 signedOrder =>
                     ordersFilterParams.makerAssetProxyId === undefined ||
                     assetDataUtils.decodeAssetDataOrThrow(signedOrder.makerAssetData).assetProxyId ===
-                        ordersFilterParams.makerAssetProxyId,
+                    ordersFilterParams.makerAssetProxyId,
             )
             .filter(
                 // makerAssetProxyId
                 signedOrder =>
                     ordersFilterParams.takerAssetProxyId === undefined ||
                     assetDataUtils.decodeAssetDataOrThrow(signedOrder.takerAssetData).assetProxyId ===
-                        ordersFilterParams.takerAssetProxyId,
+                    ordersFilterParams.takerAssetProxyId,
             );
         const apiOrders: APIOrder[] = signedOrders.map(signedOrder => ({ metaData: {}, order: signedOrder }));
         const paginatedApiOrders = paginate(apiOrders, page, perPage);
@@ -265,9 +279,11 @@ export class OrderBook {
         const signedOrders = signedOrderModels.map(deserializeOrder);
         for (const signedOrder of signedOrders) {
             try {
+                //@ts-ignore
                 await this._contractWrappers.exchange.validateOrderFillableOrThrowAsync(signedOrder, {
                     simulationTakerAddress: DEFAULT_TAKER_SIMULATION_ADDRESS,
                 });
+                //@ts-ignore
                 await this._orderWatcher.addOrderAsync(signedOrder);
             } catch (err) {
                 const orderHash = orderHashUtils.getOrderHashHex(signedOrder);
