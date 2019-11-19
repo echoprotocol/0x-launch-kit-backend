@@ -1,7 +1,6 @@
 ECHO TODO 1: install dependencies
 
      0x.js 
-     echo-web3 
      @0x/assert
      @0x/connect
      @0x/json-schemas
@@ -10,7 +9,7 @@ ECHO TODO 1: install dependencies
      @0x/types
      @0x/typescript-typings
      @0x/utils
-     @0x/web3-wrappe
+     @0x/web3-wrapper
 
 <img src="launch_kit_banner.png">
 
