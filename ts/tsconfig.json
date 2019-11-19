@@ -11,5 +11,8 @@
         "typeRoots": ["../node_modules/@0x/typescript-typings/types", "../node_modules/@types"],
         "noUnusedParameters": true
     },
-    "include": ["src"]
+    "include": ["src"],
+    "exclude": [
+        "**/ganache-core/typings/index.d.ts",
+    ]
 }
