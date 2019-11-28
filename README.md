@@ -1,3 +1,16 @@
+ECHO TODO 1: install dependencies
+
+     0x.js 
+     @0x/assert
+     @0x/connect
+     @0x/json-schemas
+     @0x/order-watcher
+     @0x/tslint-config
+     @0x/types
+     @0x/typescript-typings
+     @0x/utils
+     @0x/web3-wrapper
+
 <img src="launch_kit_banner.png">
 
 ## Table of contents

@@ -76,6 +76,7 @@ export class Handlers {
         this._orderBook = new OrderBook();
     }
     public async initOrderBookAsync(): Promise<void> {
+        await this._orderBook.init();
         await this._orderBook.addExistingOrdersToOrderWatcherAsync();
     }
     public async ordersAsync(req: express.Request, res: express.Response): Promise<void> {

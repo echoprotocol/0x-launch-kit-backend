@@ -9,7 +9,11 @@
         "experimentalDecorators": true,
         "sourceMap": false,
         "typeRoots": ["../node_modules/@0x/typescript-typings/types", "../node_modules/@types"],
-        "noUnusedParameters": true
+        "noUnusedParameters": true,
+        "skipLibCheck": true
     },
-    "include": ["src"]
+    "include": ["src"],
+    "exclude": [
+        "**/ganache-core/typings/index.d.ts",
+    ]
 }
