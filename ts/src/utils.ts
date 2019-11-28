@@ -21,6 +21,7 @@ export const utils = {
                 (schemaValidationError: SchemaValidationError) =>
                     schemaValidationErrorToValidationErrorItem(schemaValidationError),
             );
+            //@ts-ignore
             throw new ValidationError(validationErrorItems);
         }
     },
